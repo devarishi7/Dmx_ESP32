@@ -1,0 +1,46 @@
+#######################################
+# Syntax Coloring Map Dmx_ESP32.h
+#######################################
+
+#######################################
+# Use Only 1 TAB in between
+#######################################
+
+#######################################
+# Class (KEYWORD1)
+#######################################
+
+dmxRx	KEYWORD1
+dmxTx	KEYWORD1
+Dmx_ESP32	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+hasUpdated	KEYWORD2
+hasUpdatedChannel	KEYWORD2
+updateAvailable	KEYWORD2
+read	KEYWORD2
+configure	KEYWORD2
+start	KEYWORD2
+stop	KEYWORD2
+rxDisable	KEYWORD2
+rxEnable	KEYWORD2
+rxIsEnabled	KEYWORD2
+dmxBuffer	KEYWORD2
+readBytes	KEYWORD2
+readBytesWhenAvailable	KEYWORD2
+readBytesWhenFoundBreak	KEYWORD2
+resetUpdated	KEYWORD2
+transmit	KEYWORD2
+write	KEYWORD2
+writeBytes	KEYWORD2
+transmitMicros	KEYWORD2
+readyToTransmit	KEYWORD2
+breakLength	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+DMX_CHANNELS	LITERAL1
