@@ -408,10 +408,12 @@ inline void dmxRx::breakDetected(void *arg)
 		uint16_t channels = p->_dmxPort->available();
 		if (channels) {
 			if (channels + p->_readAlready > p->_maxChannels) {  // we only discard any excess channels, we do still
-				p->_dmxPort->read(p->_dmxBuf + p->_readAlready, p->_maxChannels - p->_readAlready); // copy them
+				/*p->_dmxPort->read(p->_dmxBuf + p->_readAlready, p->_maxChannels - p->_readAlready); // copy them
 				uint16_t rest = channels - (p->_maxChannels - p->_readAlready); // we could discard all of them 
 				uint8_t dummy[rest];
-				p->_dmxPort->read(dummy, rest);
+				p->_dmxPort->read(dummy, rest);*/
+				uint8_t dummy[channels];   // it is better to discard an oversize packet
+				p->_dmxPort->read(dummy, channels);
 			}
 			else {    // the _readAlready variable keeps track of how many bytes have been transferred from
 				p->_dmxPort->read(p->_dmxBuf + p->_readAlready, channels);
@@ -446,10 +448,12 @@ IRAM_ATTR void dmxRx::breakDetected()
 		uint16_t channels = _dmxPort->available();
 		if (channels) {
 			if (channels + _readAlready > _maxChannels) {
-				_dmxPort->read(_dmxBuf + _readAlready, _maxChannels - _readAlready);
+				/*_dmxPort->read(_dmxBuf + _readAlready, _maxChannels - _readAlready);
 				uint16_t rest = channels - (_maxChannels - _readAlready);
 				uint8_t dummy[rest];
-				_dmxPort->read(dummy, rest);
+				_dmxPort->read(dummy, rest);*/
+				uint8_t dummy[channels];
+				_dmxPort->read(dummy, channels);
 			}
 			else {
 				_dmxPort->read(_dmxBuf + _readAlready, channels);
