@@ -54,7 +54,9 @@ void loop() {
                 // if you expect your other processing to take longer than that occasionally, you should 
                 // use readBytesWhenFoundBreak() instead. There is no need to wait for a frame to become
                 // available, you can read and all values wiil be updated when the frame reset break
-                // is found. More Functions are available for certain purposes. Please check the header
+                // is found. If you wait till the break is found, the test for the oversize frame is done as well
+                // testing for frame that does not contain all channels is pointless since the spec allows for incomplete
+                // frames. More Functions are available for certain purposes. Please check the header
                 // file for the syntax.
     
     if (!receiving) {
@@ -79,3 +81,4 @@ void otherProcessing() {
 void doWithChannels() {
   // whatever you want to do with them
 }
+
