@@ -30,7 +30,7 @@
 
 #if ESP_IDF_VERSION_MAJOR >= 5
 
-#define READ_TASK_STACK_SIZE 1536  // should easily suffice
+#define READ_TASK_STACK_SIZE 3072  // i thought 1536 was enough, but it's not.
 #define READ_TASK_PRIORITY 4       // default from Callback example is 4
 
 #include "esp32-hal-periman.h"  
