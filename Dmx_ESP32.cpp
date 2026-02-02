@@ -18,19 +18,17 @@
 
 #include "Dmx_ESP32.h"
 
-#define DMX_BREAK_BAUD 60000  // should result in 60.000 = 1000000 * 9 / 150us or 133us depending on 
-							// whether the startbit is included. MAB will be  33us. Consider 100000 to be the Max
-							// as that results in 90us break with 20us MAB
+
+
 #define SERIAL_SIZE_TX 520
 #define DMX_BAUD 250000
 #define DMX_FORMAT SERIAL_8N2
 #define SERIAL_SIZE_RX 520  // in theory only 514 bytes are required, but it is not such a scarce resource
 #define MAX_TIMEOUT 150  // ms
 
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 
-#if ESP_IDF_VERSION_MAJOR >= 5
-
-#define READ_TASK_STACK_SIZE 3072  // i thought 1536 was enough, but it's not.
+#define READ_TASK_STACK_SIZE 3072  // 2048 will probably suffice, but the previous 1536 was just not enough
 #define READ_TASK_PRIORITY 4       // default from Callback example is 4
 
 #include "esp32-hal-periman.h"  
@@ -95,21 +93,26 @@ dmxRx::dmxRx(HardwareSerial* port, int8_t pinRx, int8_t rmtRx,
 	_filter = filt;
 	  
       // the RMT needs to be initalized in the constructor.
-#if ESP_IDF_VERSION_MAJOR >= 5  // The RNT API in core 3 is competely different from core 2
+#if ESP_ARDUINO_VERSION_MAJOR >= 3  // The RMT API in core 3 is competely different from core 2
                                
 	if (!rmtInit(_rmtRx, RMT_RX_MODE, RMT_MEM_NUM_BLOCKS_1, RMT_FREQ_HZ)) {
 		log_e("RMT not initialized");
 		return;
 	}
+	else {
+		log_d("RMT initialized");
+	}
 	if (!rmtSetRxMaxThreshold(_rmtRx, _breakLength)) {
 		log_e("Breaklength not set");
 	}
+	else {
+		log_d("Breaklength set");
+	}
 	if (!rmtSetRxMinThreshold(_rmtRx, _filter)) {
 		log_e("Filter not set");  // the function returned an error
-		// Doesn't mean the filter is on or off.
-	}
-#else
-	
+		// Doesn't mean the filter is on or off.		
+	}	
+#else	
 	if ((_rmt_recv = rmtInit(_rmtRx, RMT_RX_MODE, RMT_MEM_64)) == NULL) {
 		log_e("RMT not initialized");
 	}
@@ -130,32 +133,54 @@ dmxRx::dmxRx(HardwareSerial* port, int8_t pinRx, int8_t rmtRx,
 bool dmxRx::configure() 
 {  // call this in setup()
 
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	void *rmtBus = NULL;
 	if (_pinRx == _rmtRx) {  // If the pins are the same use the peripheral manager to allow the pin to be shared
-		log_e("Using the same pin for UART & RMT in core v3 disables bus detach for UART Rx & RMT Rx");
+		log_e("Using the same pin for UART & RMT in core v3.3.0 disables bus detach for UART Rx & RMT Rx");
 		rmtBus = perimanGetPinBus(_rmtRx, ESP32_BUS_TYPE_RMT_RX);  // finds the bus 
 		if (rmtBus ==  NULL) {                                    // this method is thanx to @SuGlider 
 			log_e("Error aquiring the RMT Bus Peripheral Manager information");
 		}
-		perimanSetBusDeinit(ESP32_BUS_TYPE_RMT_RX, _rmtRXPinDetachBus);  // Attaches the dummy detachpin callback
-	}
+#if ESP_ARDUINO_VERSION_PATCH > 0
+		peripheral_bus_deinit_cb_t rmtRXdetachCB = perimanGetBusDeinit(ESP32_BUS_TYPE_RMT_RX);
+		_rmtRxPinBusNr = perimanGetPinBusNum(_rmtRx);
+		_rmtRxChannelNr = perimanGetPinBusNum(_rmtRx);
+		_rmt_bus = rmtBus;
+		log_d("rmt Detach callback stored");
 #endif
-
-	_dmxPort->setRxBufferSize(SERIAL_SIZE_RX);              // Make sure the RX buffer is big enough.
-	_dmxPort->begin(DMX_BAUD, DMX_FORMAT, _pinRx, _pinTx);  // Start the UART
-	_dmxPort->setRxFIFOFull(1);                // one byte at a time to make sure the break is in the right spot
+		perimanSetBusDeinit(ESP32_BUS_TYPE_RMT_RX, _rmtRXPinDetachBus);  // Attaches the dummy detachpin callback
 	
-#if ESP_IDF_VERSION_MAJOR >= 5
-	if (_pinRx == _rmtRx) { 
+		_dmxPort->setRxBufferSize(SERIAL_SIZE_RX);              // Make sure the RX buffer is big enough.
+		_dmxPort->begin(DMX_BAUD, DMX_FORMAT, _pinRx, _pinTx);  // Start the UART
+		_dmxPort->setRxFIFOFull(1);                // one byte at a time to make sure the break is in the right spot
+#if ESP_ARDUINO_VERSION_PATCH > 0
+		peripheral_bus_deinit_cb_t uartRXdetachCB = perimanGetBusDeinit(ESP32_BUS_TYPE_UART_RX); 
+		_uartRxPinBusNr = perimanGetPinBusNum(_pinRx);
+		_uartRxChannelNr = perimanGetPinBusNum(_pinRx);
+		_uart_bus = perimanGetPinBus(_pinRx, ESP32_BUS_TYPE_UART_RX);
+		log_d("uart Detach callback stored");
+#endif		
 		perimanSetBusDeinit(ESP32_BUS_TYPE_UART_RX, _uartRXPinDetachBus);  // attach the other dummy callback
 		if (!perimanSetPinBus(_rmtRx, ESP32_BUS_TYPE_RMT_RX, rmtBus, -1, -1)) {  // Set the pin Bus Type to RMT again
 			log_e("Can't allocate the GPIO %d for RMT RX in the Peripheral Manager.", _rmtRx);
-		}                          // or the RMT reception won't start (when the pin is set to UART
+		}                          // or the RMT reception won't start (when the pin is set to UART)
 		log_w("If you intend to detach these busses at some point, use 2 separate pins");
-	}
+#if ESP_ARDUINO_VERSION_PATCH > 0		
+		perimanSetBusDeinit(ESP32_BUS_TYPE_UART_RX, uartRXdetachCB);
+		perimanSetBusDeinit(ESP32_BUS_TYPE_RMT_RX, rmtRXdetachCB);
+		log_d("uart + rmt Detach callbacks restored");
 #endif
-
+	}
+	else {
+		_dmxPort->setRxBufferSize(SERIAL_SIZE_RX);              // Make sure the RX buffer is big enough.
+		_dmxPort->begin(DMX_BAUD, DMX_FORMAT, _pinRx, _pinTx);  // Start the UART
+		_dmxPort->setRxFIFOFull(1);                // one byte at a time to make sure the break is in the right spot
+	}
+#else
+	_dmxPort->setRxBufferSize(SERIAL_SIZE_RX);              // Make sure the RX buffer is big enough.
+	_dmxPort->begin(DMX_BAUD, DMX_FORMAT, _pinRx, _pinTx);  // Start the UART
+	_dmxPort->setRxFIFOFull(1);                // one byte at a time to make sure the break is in the right spot
+#endif
 	pinMode(_pinEnable, OUTPUT);
 	digitalWrite(_pinEnable, HIGH); // not receive mode. The library expects the pin to be
 								// wired to the !RE pin only, basically leaving it unenabled unless used
@@ -163,16 +188,18 @@ bool dmxRx::configure()
 	pinMode(_pinToggle, OUTPUT); // Never have 2 transceivers in DE mode at the same time !
 	digitalWrite(_pinToggle, _ledOn);
 	_configured = true;
+	_hasStarted = false;
 	return true;
 }
 
 bool dmxRx::start(bool enable) 
 {
-	if (!_configured) {  // fails, we can only start when configured
+	if ((!_configured) || (_hasStarted)) {  // fails, we can only start when configured
 		return false;
 	}
-#if ESP_IDF_VERSION_MAJOR >= 5
-	xTaskCreate(readTask, "BreakDetector", READ_TASK_STACK_SIZE, this, READ_TASK_PRIORITY, NULL);  // note the priority of the task
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+	xTaskCreate(readTask, "BreakDetector", READ_TASK_STACK_SIZE, this, READ_TASK_PRIORITY, &_rmtReadTaskHandle );  // note the priority of the task
+	log_d("rmtReadTask has created.");
 #else
 	rmtRead(_rmt_recv, idleCalback, this);
 #endif
@@ -186,10 +213,9 @@ bool dmxRx::start(bool enable)
 		digitalWrite(_pinEnable, LOW); // receive mode
 	}
 	_firstFrame = true;  // we will discard the first frame before we have found a break
+	_hasStarted = true;
 	return true;
 }
-
-
 
 bool dmxRx::stop() 
 {
@@ -197,10 +223,36 @@ bool dmxRx::stop()
 		return false;
 	}
 	_configured = false;  // to re-install you will need to re-configure
-	_dmxPort->end();  // end the Serial port
-#if ESP_IDF_VERSION_MAJOR >= 5
-	rmtDeinit(_rmtRx); // end RMT
+	
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    if (_hasStarted) {
+		vTaskDelete(_rmtReadTaskHandle);
+		log_d("rmtReadTask has been deleted");
+	}
+	if (_rmtRx == _pinRx) {
+#if ESP_ARDUINO_VERSION_PATCH > 0
+		if (!perimanSetPinBus(_rmtRx, ESP32_BUS_TYPE_RMT_RX, _rmt_bus, _rmtRxPinBusNr, _rmtRxChannelNr)) {
+			log_e("Can't set pinbus to RMT_RX");
+		}
+		rmtDeinit(_rmtRx); // end RMT
+		if (!perimanSetPinBus(_pinRx, ESP32_BUS_TYPE_UART_RX, _uart_bus, _uartRxPinBusNr, _uartRxChannelNr)) {
+			log_e("Can't set pinbus to UART_RX");
+		}
+		_dmxPort->end();
+		log_d("RMT & UART are stopped, Bus has been detached.");
+#else		
+		_dmxPort->end();  // end the Serial port
+		log_w("UART is stopped, Bus has not been detached.");
+		rmtDeinit(_rmtRx); // end RMT
+		log_w("RMT is stopped, Bus has not been detached.");
+#endif		
+	}
+	else {
+		_dmxPort->end();  // end the Serial port
+		rmtDeinit(_rmtRx); // end RMT
+	}	
 #else
+	_dmxPort->end();  // end the Serial port	
 	rmtDeinit(_rmt_recv); // end RMT
 	_rmt_recv = NULL; // set the pointer to NULL
 #endif
@@ -385,7 +437,7 @@ bool dmxRx::readBytesWhenFoundBreak(uint8_t* data, uint16_t numBytes, uint16_t s
 	return false;
 }
 
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 
 int8_t dmxRx::rmtRxPin()
 {
@@ -408,12 +460,10 @@ inline void dmxRx::breakDetected(void *arg)
 		uint16_t channels = p->_dmxPort->available();
 		if (channels) {
 			if (channels + p->_readAlready > p->_maxChannels) {  // we only discard any excess channels, we do still
-				/*p->_dmxPort->read(p->_dmxBuf + p->_readAlready, p->_maxChannels - p->_readAlready); // copy them
+				p->_dmxPort->read(p->_dmxBuf + p->_readAlready, p->_maxChannels - p->_readAlready); // copy them
 				uint16_t rest = channels - (p->_maxChannels - p->_readAlready); // we could discard all of them 
 				uint8_t dummy[rest];
-				p->_dmxPort->read(dummy, rest);*/
-				uint8_t dummy[channels];   // it is better to discard an oversize packet
-				p->_dmxPort->read(dummy, channels);
+				p->_dmxPort->read(dummy, rest);
 			}
 			else {    // the _readAlready variable keeps track of how many bytes have been transferred from
 				p->_dmxPort->read(p->_dmxBuf + p->_readAlready, channels);
@@ -448,10 +498,6 @@ IRAM_ATTR void dmxRx::breakDetected()
 		uint16_t channels = _dmxPort->available();
 		if (channels) {
 			if (channels + _readAlready > _maxChannels) {
-				/*_dmxPort->read(_dmxBuf + _readAlready, _maxChannels - _readAlready);
-				uint16_t rest = channels - (_maxChannels - _readAlready);
-				uint8_t dummy[rest];
-				_dmxPort->read(dummy, rest);*/
 				uint8_t dummy[channels];
 				_dmxPort->read(dummy, channels);
 			}
@@ -521,7 +567,7 @@ bool dmxTx::transmit()
 						// With ESP32 this function is overloaded
 	                    // therefore if you don't want to waste time, do not call it before it has completed.
 						// but we have to make sure it has all been sent before switching the Baud-rate.
-    _dmxPort->updateBaudRate(DMX_BREAK_BAUD);
+    _dmxPort->updateBaudRate(_breakBaud);
     _dmxPort->write(0);  // for the duration of the break, the processor will be held here.
     _dmxPort->flush();   // ESP32 UART has a method for sending a break, but it does not include a MAB
     _dmxPort->updateBaudRate(DMX_BAUD);
@@ -536,9 +582,15 @@ const uint32_t dmxTx::transmitMicros() // returns the number of microSeconds req
 	return (DMX_CHANNELS * 11 * 4);  // eg bits per byte 8N2 = 11, us per Bit 250kbps = 4
 }
 
-const uint32_t dmxTx::breakLength() // returns the length of the break
+uint32_t dmxTx::breakLength(bool withMAB) // returns the length of the break
 {
-	return (11 * 1000000 / DMX_BREAK_BAUD);
+	if (withMAB) return (11 * 1000000 / _breakBaud);
+	return (9 * 1000000 / _breakBaud);
+}
+
+void dmxTx::setBreakLength(uint32_t length_us) // returns the length of the break
+{
+	_breakBaud = (1000000 * 9 / length_us);
 }
 
 bool dmxTx::readyToTransmit() { // Just does it by means of calculation.
@@ -578,7 +630,7 @@ uint8_t* dmxTx::dmxBuffer() // returns a pointer to the tx-buffer for direct acc
 	return _dmxBuf;
 }
 
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 
 inline void dmxTx::toggleLed() 
 {  // called from an IRAM_ATTR function

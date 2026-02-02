@@ -38,9 +38,12 @@ writeBytes	KEYWORD2
 transmitMicros	KEYWORD2
 readyToTransmit	KEYWORD2
 breakLength	KEYWORD2
+setBreakLength	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
 #######################################
 
 DMX_CHANNELS	LITERAL1
+DMX_FRAME	LITERAL1
+DMX_BREAK_US	LITERAL1

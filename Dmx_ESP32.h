@@ -19,7 +19,7 @@
 #ifndef Dmx_ESP32_h
 #define Dmx_ESP32_h
 
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wdeprecated-declarations"  // ignore depracted warnings
 		#include "Arduino.h"              // it warns for deprecation of an API that isn't used at all
@@ -33,10 +33,16 @@
 #endif
 
 #define DMX_CHANNELS 513  // slot 0 and slots 1 - 512
+#define DMX_FRAME 512
 
 
-#if ESP_IDF_VERSION_MAJOR >= 5
-	#if ESP_IDF_VERSION_MINOR < 5
+#define DMX_BREAK_US 150
+ // should result in 60.000 = 1000000 * 9 / 150us or 133us depending on 
+// whether the startbit is included. MAB will be  33us. Consider 100000 to be the Max
+							// as that results in 90us break with 20us MAB
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+	#if ESP_ARDUINO_VERSION_MINOR < 3
 		#error For ESP32 Core 3, the minimum version is 3.3.0 (Fatal errors in the RMT driver in lower versions)
 	#endif
 #define RMT_FREQ_HZ 1000000  // 1Mhz 1us per tick
@@ -71,7 +77,7 @@ class dmxRx {
 	bool readBytesWhenAvailable(uint8_t* data, uint16_t numBytes, uint16_t startChannel, 
 	                            bool startWithBreak = true, uint16_t timeOut = 50);
 	bool readBytesWhenFoundBreak(uint8_t* data, uint16_t numBytes, uint16_t startChannel, uint16_t timeOut = 50);
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	size_t rx_num_symbols = RMT_MEM_NUM_BLOCKS_1 * RMT_SYMBOLS_PER_CHANNEL_BLOCK;
 	rmt_data_t rx_symbols[RMT_MEM_NUM_BLOCKS_1 * RMT_SYMBOLS_PER_CHANNEL_BLOCK];
     inline void breakDetected(void *arg);
@@ -83,8 +89,14 @@ class dmxRx {
   private: 
     
     static const uint16_t _maxChannels = DMX_CHANNELS + 1;  
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	inline void toggleLed();
+	TaskHandle_t _rmtReadTaskHandle = NULL;
+#if ESP_ARDUINO_VERSION_PATCH > 0
+	int8_t _rmtRxPinBusNr, _rmtRxChannelNr, _uartRxPinBusNr, _uartRxChannelNr; 
+	void * _rmt_bus = NULL;
+	void * _uart_bus = NULL;
+#endif
 #else
 	IRAM_ATTR inline void toggleLed();
     rmt_obj_t* _rmt_recv = NULL;    
@@ -93,9 +105,9 @@ class dmxRx {
 	uint8_t _dmxBuf[_maxChannels];
     int8_t _pinRx, _rmtRx, _pinEnable, _pinToggle, _ledOn, _pinTx;	
     uint16_t _breakLength, _filter;
-    bool _configured = false, _isEnabled = false;
+    bool _configured = false, _hasStarted = false, _isEnabled = false;
     volatile bool _foundBreak = false, _firstFrame = true;
-    volatile uint16_t _readAlready = 0; 
+    volatile uint16_t _readAlready = 0; 	
 };  // class dmxRx
 
 
@@ -109,12 +121,14 @@ class dmxTx {
 	uint16_t writeBytes(uint8_t* data, uint16_t numBytes, uint16_t startChannel = 1);
 	uint8_t* dmxBuffer();
 	bool transmit();
+	bool transmitBreak();  // transmits only the break to allow for multiple outputs to run in sync (and not waste time)
 	bool readyToTransmit();
 	const uint32_t transmitMicros();
-	const uint32_t breakLength();
+	uint32_t breakLength(bool withMAB = false);
+	void setBreakLength(uint32_t length_us);
 
   private:	
-#if ESP_IDF_VERSION_MAJOR >= 5
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 	inline void toggleLed();
 #else
 	IRAM_ATTR inline void toggleLed();
@@ -123,8 +137,8 @@ class dmxTx {
 	int8_t _pinEnable, _pinToggle, _ledOn, _pinTx, _pinRx;
 	uint8_t _dmxBuf[DMX_CHANNELS];
 	uint16_t _writeSize;
-	//uint32_t _lastTransmit = 0;
-	bool _configured = false;
+	bool _configured = false, _sendBreakFirst = true;
+	uint32_t _breakBaud = (1000000 * 9 / DMX_BREAK_US);
 };
 
 #endif // #ifndef Dmx_ESP32_h
